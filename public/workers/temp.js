@@ -1,24 +1,21 @@
+var _a;
 importScripts("https://unpkg.com/@typescript/vfs@1.3.5/dist/vfs.globals.js");
 importScripts(
   "https://cdnjs.cloudflare.com/ajax/libs/typescript/4.4.3/typescript.min.js"
 );
 importScripts("https://unpkg.com/@okikio/emitter@2.1.7/lib/api.js");
 
-export type VFS = typeof import("@typescript/vfs");
-export type EVENT_EMITTER = import("@okikio/emitter").EventEmitter;
-export type Diagnostic = import("@codemirror/lint").Diagnostic;
-
 var {
   createDefaultMapFromCDN,
   createSystem,
-  createVirtualTypeScriptEnvironment,
-} = globalThis.tsvfs as VFS;
+  createVirtualTypeScriptEnvironment
+} = globalThis.tsvfs;
+
 var ts = globalThis.ts; // as TS
-
 var EventEmitter = globalThis.emitter.EventEmitter;
-var _emitter: EVENT_EMITTER = new EventEmitter();
-
-globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
+var _emitter = new EventEmitter();
+globalThis.localStorage =
+  (_a = globalThis.localStorage) !== null && _a !== void 0 ? _a : {};
 
 (async () => {
   const compilerOpts = {
@@ -26,6 +23,7 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
     module: ts.ScriptTarget.ES2020,
     lib: ["es2021", "es2020", "dom", "webworker"],
     esModuleInterop: true,
+    jsx: "react-jsx"
   };
 
   let initialText = "const hello = 'hi'";
@@ -39,7 +37,7 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
     false,
     ts
   );
-  const ENTRY_POINT = "index.ts";
+  const ENTRY_POINT = "index.tsx";
   fsMap.set(ENTRY_POINT, initialText);
 
   const reactTypes = await fetch(
@@ -59,7 +57,7 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
   // You can then interact with the languageService to introspect the code
   postMessage({
     event: "ready",
-    details: [],
+    details: []
   });
 
   _emitter.on("updateText", (details) => {
@@ -73,16 +71,15 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
       pos,
       {}
     );
-
     postMessage({
       event: "autocomplete-results",
-      details: result,
+      details: result
     });
   });
 
   _emitter.on("tooltip-request", ({ pos }) => {
+    var _a;
     let result = env.languageService.getQuickInfoAtPosition(ENTRY_POINT, pos);
-
     postMessage({
       event: "tooltip-results",
       details: result
@@ -90,26 +87,30 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
             result,
             tootltipText:
               ts.displayPartsToString(result.displayParts) +
-              (result.documentation?.length
+              ((
+                (_a = result.documentation) === null || _a === void 0
+                  ? void 0
+                  : _a.length
+              )
                 ? "\n" + ts.displayPartsToString(result.documentation)
-                : ""),
+                : "")
           }
-        : { result, tooltipText: "" },
+        : { result, tooltipText: "" }
     });
   });
 
   _emitter.on("lint-request", () => {
-    let SyntacticDiagnostics =
-      env.languageService.getSyntacticDiagnostics(ENTRY_POINT);
-    let SemanticDiagnostic =
-      env.languageService.getSemanticDiagnostics(ENTRY_POINT);
-    let SuggestionDiagnostics =
-      env.languageService.getSuggestionDiagnostics(ENTRY_POINT);
+    let SyntacticDiagnostics = env.languageService.getSyntacticDiagnostics(
+      ENTRY_POINT
+    );
+    let SemanticDiagnostic = env.languageService.getSemanticDiagnostics(
+      ENTRY_POINT
+    );
+    let SuggestionDiagnostics = env.languageService.getSuggestionDiagnostics(
+      ENTRY_POINT
+    );
 
-    type Diagnostics = typeof SyntacticDiagnostics &
-      typeof SemanticDiagnostic &
-      typeof SuggestionDiagnostics;
-    let result: Diagnostics = [].concat(
+    let result = [].concat(
       SyntacticDiagnostics,
       SemanticDiagnostic,
       SuggestionDiagnostics
@@ -121,28 +122,21 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
         let from = v.start;
         let to = v.start + v.length;
         // let codeActions = env.languageService.getCodeFixesAtPosition(ENTRY_POINT, from, to, [v.category], {}, {});
-
-        let diag: Diagnostic = {
+        let diag = {
           from,
           to,
-          message: v.messageText as string,
-          source: v?.source,
-          severity: ["warning", "error", "info", "info"][
-            v.category
-          ] as Diagnostic["severity"],
+          message: v.messageText,
+          source: v === null || v === void 0 ? void 0 : v.source,
+          severity: ["warning", "error", "info", "info"][v.category]
           // actions: codeActions as any as Diagnostic["actions"]
         };
-
         return diag;
-      }),
+      })
     });
   });
 })();
 
-addEventListener(
-  "message",
-  ({ data }: MessageEvent<{ event: string; details: any }>) => {
-    let { event, details } = data;
-    _emitter.emit(event, details);
-  }
-);
+addEventListener("message", ({ data }) => {
+  let { event, details } = data;
+  _emitter.emit(event, details);
+});

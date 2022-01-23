@@ -13,7 +13,7 @@ import debounceAsync from "debounce-async";
 let tsServer = new Worker(
   new URL("/workers/tsserver.js", window.location.origin),
   {
-    name: "ts-server"
+    name: "ts-server",
   }
 );
 
@@ -25,7 +25,7 @@ const extensions = [
       if (update.docChanged) {
         tsServer.postMessage({
           event: "updateText",
-          details: update.state.doc
+          details: update.state.doc,
         });
       }
     }, 150)
@@ -41,7 +41,7 @@ const extensions = [
           try {
             tsServer.postMessage({
               event: "autocomplete-request",
-              details: { pos }
+              details: { pos },
             });
 
             const completions = await new Promise((resolve) => {
@@ -62,7 +62,7 @@ const extensions = [
                   type: c.kind,
                   label: c.name,
                   // TODO:: populate details and info
-                  boost: 1 / Number(c.sortText)
+                  boost: 1 / Number(c.sortText),
                 };
 
                 return suggestions;
@@ -74,15 +74,15 @@ const extensions = [
           }
         },
         200
-      )
-    ]
+      ),
+    ],
   }),
 
   hoverTooltip(
     async ({ state }: EditorView, pos: number): Promise<Tooltip | null> => {
       tsServer.postMessage({
         event: "tooltip-request",
-        details: { pos }
+        details: { pos },
       });
 
       const { result: quickInfo, tootltipText } = await new Promise(
@@ -103,19 +103,19 @@ const extensions = [
           dom.textContent = tootltipText;
 
           return { dom };
-        }
+        },
       };
     },
     {
-      hideOnChange: true
+      hideOnChange: true,
     }
   ),
 
   linter(
-    async (view: EditorView): Promise<Diagnostic[]> => {
+    async (view: EditorView): Promise<Diagnostic[] | null> => {
       tsServer.postMessage({
         event: "lint-request",
-        details: []
+        details: [],
       });
 
       const diagnostics = await new Promise((resolve) => {
@@ -125,12 +125,13 @@ const extensions = [
       });
 
       if (!diagnostics) return null;
+
       return diagnostics as Diagnostic[];
     },
     {
-      delay: 400
+      delay: 400,
     }
-  )
+  ),
 ];
 
 const code = `import React, { useState } from "react"
@@ -144,7 +145,7 @@ export default function App(): JSX.Element {
 emitter.on("ready", () => {
   tsServer.postMessage({
     event: "updateText",
-    details: code
+    details: code,
   });
 });
 
