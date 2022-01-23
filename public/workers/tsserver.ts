@@ -39,7 +39,7 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
     false,
     ts
   );
-  const ENTRY_POINT = "index.ts";
+  const ENTRY_POINT = "index.tsx";
   fsMap.set(ENTRY_POINT, initialText);
 
   const reactTypes = await fetch(
@@ -64,7 +64,6 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
 
   _emitter.on("updateText", (details) => {
     env.updateFile(ENTRY_POINT, [].concat(details.text).join("\n"));
-    // console.log(details.text)
   });
 
   _emitter.on("autocomplete-request", ({ pos }) => {

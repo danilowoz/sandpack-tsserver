@@ -1,14 +1,28 @@
-import { Sandpack } from "@codesandbox/sandpack-react";
+import {
+  Sandpack,
+  SandpackCodeEditor,
+  SandpackProvider,
+  SandpackThemeProvider,
+  useActiveCode,
+  useSandpack,
+} from "@codesandbox/sandpack-react";
 import "@codesandbox/sandpack-react/dist/index.css";
 
 import { EventEmitter } from "@okikio/emitter";
-import { EditorView } from "@codemirror/view";
-import { autocompletion, completeFromList } from "@codemirror/autocomplete";
-import { hoverTooltip } from "@codemirror/tooltip";
+import { EditorView, ViewUpdate } from "@codemirror/view";
+import {
+  autocompletion,
+  completeFromList,
+  CompletionContext,
+  CompletionResult,
+  Completion,
+} from "@codemirror/autocomplete";
+import { hoverTooltip, Tooltip } from "@codemirror/tooltip";
 import { Diagnostic, linter } from "@codemirror/lint";
 
 import debounce from "lodash.debounce";
 import debounceAsync from "debounce-async";
+import { useEffect } from "react";
 
 let tsServer = new Worker(
   new URL("/workers/tsserver.js", window.location.origin),
@@ -112,7 +126,7 @@ const extensions = [
   ),
 
   linter(
-    async (view: EditorView): Promise<Diagnostic[] | null> => {
+    async (view: EditorView): Promise<Diagnostic[]> => {
       tsServer.postMessage({
         event: "lint-request",
         details: [],
@@ -124,7 +138,7 @@ const extensions = [
         });
       });
 
-      if (!diagnostics) return null;
+      if (!diagnostics) return undefined;
 
       return diagnostics as Diagnostic[];
     },
@@ -134,35 +148,56 @@ const extensions = [
   ),
 ];
 
-const code = `import React, { useState } from "react"
+const TsSever = () => {
+  const {
+    sandpack: { files },
+  } = useSandpack();
+  const { code } = useActiveCode();
+
+  useEffect(() => {
+    emitter.on("ready", () => {
+      tsServer.postMessage({
+        event: "updateText",
+        details: code,
+      });
+    });
+
+    const serverMessageCallback = ({
+      data: { event, details },
+    }: MessageEvent<{ event: string; details: any }>) => {
+      emitter.emit(event, details);
+    };
+
+    tsServer.addEventListener("message", serverMessageCallback);
+
+    return () => {
+      tsServer.removeEventListener("message", serverMessageCallback);
+    };
+  }, []);
+
+  return null;
+};
+
+export default function App() {
+  return (
+    <SandpackProvider
+      template="react-ts"
+      customSetup={{
+        files: {
+          "/App.tsx": `import React, { useState } from "react"
 
 export default function App(): JSX.Element {
   const [state, setState] = useState()
   
   return <h1>Hello World</h1>
-}`;
-
-emitter.on("ready", () => {
-  tsServer.postMessage({
-    event: "updateText",
-    details: code,
-  });
-});
-
-tsServer.addEventListener(
-  "message",
-  ({ data }: MessageEvent<{ event: string; details: any }>) => {
-    let { event, details } = data;
-    emitter.emit(event, details);
-  }
-);
-
-export default function App() {
-  return (
-    <Sandpack
-      template="react-ts"
-      files={{ "/App.tsx": code }}
-      options={{ showTabs: true, codeEditor: { extensions } }}
-    />
+}`,
+        },
+      }}
+    >
+      <SandpackThemeProvider>
+        <TsSever />
+        <SandpackCodeEditor showTabs extensions={extensions} />
+      </SandpackThemeProvider>
+    </SandpackProvider>
   );
 }
