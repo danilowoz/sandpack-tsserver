@@ -13,39 +13,46 @@
   var _emitter = new EventEmitter();
   globalThis.localStorage = globalThis.localStorage ?? {};
   (async () => {
-    const compilerOpts = {
-      target: ts.ScriptTarget.ES2021,
-      module: ts.ScriptTarget.ES2020,
-      lib: ["es2021", "es2020", "dom", "webworker"],
-      esModuleInterop: true
-    };
-    let initialText = "const hello = 'hi'";
-    _emitter.once("updateText", (details) => {
-      initialText = details.text.join("\n");
-    });
-    const fsMap = await createDefaultMapFromCDN(compilerOpts, ts.version, false, ts);
-    const ENTRY_POINT = "index.tsx";
-    fsMap.set(ENTRY_POINT, initialText);
-    const reactTypes = await fetch("https://unpkg.com/@types/react@17.0.11/index.d.ts").then((data) => data.text());
-    fsMap.set("/node_modules/@types/react/index.d.ts", reactTypes);
-    const system = createSystem(fsMap);
-    const env = createVirtualTypeScriptEnvironment(system, [ENTRY_POINT], ts, compilerOpts);
+    let env;
     postMessage({
       event: "ready",
       details: []
     });
-    _emitter.on("updateText", (details) => {
-      env.updateFile(ENTRY_POINT, [].concat(details.text).join("\n"));
-    });
-    _emitter.on("autocomplete-request", ({ pos }) => {
-      let result = env.languageService.getCompletionsAtPosition(ENTRY_POINT, pos, {});
+    const createTsSystem = async (files, entry) => {
+      const compilerOpts = {
+        target: ts.ScriptTarget.ES2021,
+        module: ts.ScriptTarget.ES2020,
+        lib: ["es2021", "es2020", "dom", "webworker"],
+        esModuleInterop: true
+      };
+      const fsMap = await createDefaultMapFromCDN(compilerOpts, ts.version, false, ts);
+      const rootPaths = [];
+      for (const filePath in files) {
+        if (/^[^.]+.tsx?$/.test(filePath)) {
+          fsMap.set(filePath, files[filePath].code);
+          rootPaths.push(filePath);
+        }
+      }
+      const reactTypes = await fetch("https://unpkg.com/@types/react@17.0.11/index.d.ts").then((data) => data.text());
+      fsMap.set("/node_modules/@types/react/index.d.ts", reactTypes);
+      const reactDomTypes = await fetch("https://unpkg.com/@types/react-dom@17.0.11/index.d.ts").then((data) => data.text());
+      fsMap.set("/node_modules/@types/react-dom/index.d.ts", reactDomTypes);
+      const system = createSystem(fsMap);
+      env = createVirtualTypeScriptEnvironment(system, rootPaths, ts, compilerOpts);
+      lintSystem(entry);
+    };
+    const updateFile = (filePath, content) => {
+      env.updateFile(filePath, content);
+    };
+    const autocompleteAtPosition = (pos, filePath) => {
+      let result = env.languageService.getCompletionsAtPosition(filePath, pos, {});
       postMessage({
         event: "autocomplete-results",
         details: result
       });
-    });
-    _emitter.on("tooltip-request", ({ pos }) => {
-      let result = env.languageService.getQuickInfoAtPosition(ENTRY_POINT, pos);
+    };
+    const infoAtPosition = (pos, filePath) => {
+      let result = env.languageService.getQuickInfoAtPosition(filePath, pos);
       postMessage({
         event: "tooltip-results",
         details: result ? {
@@ -53,11 +60,13 @@
           tootltipText: ts.displayPartsToString(result.displayParts) + (result.documentation?.length ? "\n" + ts.displayPartsToString(result.documentation) : "")
         } : { result, tooltipText: "" }
       });
-    });
-    _emitter.on("lint-request", () => {
-      let SyntacticDiagnostics = env.languageService.getSyntacticDiagnostics(ENTRY_POINT);
-      let SemanticDiagnostic = env.languageService.getSemanticDiagnostics(ENTRY_POINT);
-      let SuggestionDiagnostics = env.languageService.getSuggestionDiagnostics(ENTRY_POINT);
+    };
+    const lintSystem = (filePath) => {
+      if (!env)
+        return;
+      let SyntacticDiagnostics = env.languageService.getSyntacticDiagnostics(filePath);
+      let SemanticDiagnostic = env.languageService.getSemanticDiagnostics(filePath);
+      let SuggestionDiagnostics = env.languageService.getSuggestionDiagnostics(filePath);
       let result = [].concat(SyntacticDiagnostics, SemanticDiagnostic, SuggestionDiagnostics);
       postMessage({
         event: "lint-results",
@@ -74,6 +83,17 @@
           return diag;
         })
       });
+    };
+    _emitter.once("create-system", async (payload) => {
+      createTsSystem(payload.files, payload.entry);
+    });
+    _emitter.on("lint-request", (payload) => lintSystem(payload.filePath));
+    _emitter.on("updateText", (payload) => updateFile(payload.filePath, payload.content));
+    _emitter.on("autocomplete-request", (payload) => {
+      autocompleteAtPosition(payload.pos, payload.filePath);
+    });
+    _emitter.on("tooltip-request", (payload) => {
+      infoAtPosition(payload.pos, payload.filePath);
     });
   })();
   addEventListener("message", ({ data }) => {
