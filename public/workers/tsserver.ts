@@ -1,3 +1,6 @@
+import { SandpackFiles } from "@codesandbox/sandpack-react";
+import { VirtualTypeScriptEnvironment } from "@typescript/vfs";
+
 importScripts("https://unpkg.com/@typescript/vfs@1.3.5/dist/vfs.globals.js");
 importScripts(
   "https://cdnjs.cloudflare.com/ajax/libs/typescript/4.4.3/typescript.min.js"
@@ -11,7 +14,7 @@ export type Diagnostic = import("@codemirror/lint").Diagnostic;
 var {
   createDefaultMapFromCDN,
   createSystem,
-  createVirtualTypeScriptEnvironment
+  createVirtualTypeScriptEnvironment,
 } = globalThis.tsvfs as VFS;
 var ts = globalThis.ts; // as TS
 
@@ -21,62 +24,85 @@ var _emitter: EVENT_EMITTER = new EventEmitter();
 globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
 
 (async () => {
-  const compilerOpts = {
-    target: ts.ScriptTarget.ES2021,
-    module: ts.ScriptTarget.ES2020,
-    lib: ["es2021", "es2020", "dom", "webworker"],
-    esModuleInterop: true,
-    jsx: "react-jsx"
-  };
+  let env: VirtualTypeScriptEnvironment;
 
-  let initialText = "const hello = 'hi'";
-  _emitter.once("updateText", (details) => {
-    initialText = details.text.join("\n");
-  });
-
-  const fsMap = await createDefaultMapFromCDN(
-    compilerOpts,
-    ts.version,
-    false,
-    ts
-  );
-  const ENTRY_POINT = "index.ts";
-  fsMap.set(ENTRY_POINT, initialText);
-
-  const system = createSystem(fsMap);
-  const env = createVirtualTypeScriptEnvironment(
-    system,
-    [ENTRY_POINT],
-    ts,
-    compilerOpts
-  );
-
-  // You can then interact with the languageService to introspect the code
+  /**
+   * Worker is ready
+   */
   postMessage({
     event: "ready",
-    details: []
+    details: [],
   });
 
-  _emitter.on("updateText", (details) => {
-    env.updateFile(ENTRY_POINT, [].concat(details.text).join("\n"));
-    // console.log(details.text)
-  });
+  const createTsSystem = async (
+    files: Record<string, { code: string }>,
+    entry: string
+  ) => {
+    const compilerOpts = {
+      target: ts.ScriptTarget.ES2021,
+      module: ts.ScriptTarget.ES2020,
+      lib: ["es2021", "es2020", "dom", "webworker"],
+      esModuleInterop: true,
+    };
 
-  _emitter.on("autocomplete-request", ({ pos }) => {
+    const fsMap = await createDefaultMapFromCDN(
+      compilerOpts,
+      ts.version,
+      false,
+      ts
+    );
+
+    const rootPaths = [];
+
+    for (const filePath in files) {
+      // Only ts files
+      if (/^[^.]+.tsx?$/.test(filePath)) {
+        fsMap.set(filePath, files[filePath].code);
+        rootPaths.push(filePath);
+      }
+    }
+
+    // TODO - dependencies
+    const reactTypes = await fetch(
+      "https://unpkg.com/@types/react@17.0.11/index.d.ts"
+    ).then((data) => data.text());
+    fsMap.set("/node_modules/@types/react/index.d.ts", reactTypes);
+    const reactDomTypes = await fetch(
+      "https://unpkg.com/@types/react-dom@17.0.11/index.d.ts"
+    ).then((data) => data.text());
+    fsMap.set("/node_modules/@types/react-dom/index.d.ts", reactDomTypes);
+
+    const system = createSystem(fsMap);
+
+    env = createVirtualTypeScriptEnvironment(
+      system,
+      rootPaths,
+      ts,
+      compilerOpts
+    );
+
+    lintSystem(entry);
+  };
+
+  const updateFile = (filePath: string, content: string) => {
+    env.updateFile(filePath, content);
+  };
+
+  const autocompleteAtPosition = (pos: number, filePath: string) => {
     let result = env.languageService.getCompletionsAtPosition(
-      ENTRY_POINT,
+      filePath,
       pos,
       {}
     );
 
     postMessage({
       event: "autocomplete-results",
-      details: result
+      details: result,
     });
-  });
+  };
 
-  _emitter.on("tooltip-request", ({ pos }) => {
-    let result = env.languageService.getQuickInfoAtPosition(ENTRY_POINT, pos);
+  const infoAtPosition = (pos: number, filePath: string) => {
+    let result = env.languageService.getQuickInfoAtPosition(filePath, pos);
 
     postMessage({
       event: "tooltip-results",
@@ -87,22 +113,21 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
               ts.displayPartsToString(result.displayParts) +
               (result.documentation?.length
                 ? "\n" + ts.displayPartsToString(result.documentation)
-                : "")
+                : ""),
           }
-        : { result, tooltipText: "" }
+        : { result, tooltipText: "" },
     });
-  });
+  };
 
-  _emitter.on("lint-request", () => {
-    let SyntacticDiagnostics = env.languageService.getSyntacticDiagnostics(
-      ENTRY_POINT
-    );
-    let SemanticDiagnostic = env.languageService.getSemanticDiagnostics(
-      ENTRY_POINT
-    );
-    let SuggestionDiagnostics = env.languageService.getSuggestionDiagnostics(
-      ENTRY_POINT
-    );
+  const lintSystem = (filePath: string) => {
+    if (!env) return;
+
+    let SyntacticDiagnostics =
+      env.languageService.getSyntacticDiagnostics(filePath);
+    let SemanticDiagnostic =
+      env.languageService.getSemanticDiagnostics(filePath);
+    let SuggestionDiagnostics =
+      env.languageService.getSuggestionDiagnostics(filePath);
 
     type Diagnostics = typeof SyntacticDiagnostics &
       typeof SemanticDiagnostic &
@@ -127,14 +152,45 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
           source: v?.source,
           severity: ["warning", "error", "info", "info"][
             v.category
-          ] as Diagnostic["severity"]
+          ] as Diagnostic["severity"],
           // actions: codeActions as any as Diagnostic["actions"]
         };
 
         return diag;
-      })
+      }),
     });
-  });
+  };
+
+  /**
+   * Listeners
+   */
+  _emitter.once(
+    "create-system",
+    async (payload: {
+      files: Record<string, { code: string }>;
+      entry: string;
+    }) => {
+      createTsSystem(payload.files, payload.entry);
+    }
+  );
+  _emitter.on("lint-request", (payload: { filePath: string }) =>
+    lintSystem(payload.filePath)
+  );
+  _emitter.on("updateText", (payload: { filePath: string; content: string }) =>
+    updateFile(payload.filePath, payload.content)
+  );
+  _emitter.on(
+    "autocomplete-request",
+    (payload: { pos: number; filePath: string }) => {
+      autocompleteAtPosition(payload.pos, payload.filePath);
+    }
+  );
+  _emitter.on(
+    "tooltip-request",
+    (payload: { pos: number; filePath: string }) => {
+      infoAtPosition(payload.pos, payload.filePath);
+    }
+  );
 })();
 
 addEventListener(
