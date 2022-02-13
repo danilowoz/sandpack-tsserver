@@ -12,6 +12,18 @@
   var EventEmitter = globalThis.emitter.EventEmitter;
   var _emitter = new EventEmitter();
   globalThis.localStorage = globalThis.localStorage ?? {};
+  var getCompileOptions = (tsconfigFile) => {
+    const defaultValue = {
+      target: ts.ScriptTarget.ES2021,
+      module: ts.ScriptTarget.ES2020,
+      lib: ["es2021", "es2020", "dom", "webworker"],
+      esModuleInterop: true
+    };
+    if (tsconfigFile.compilerOptions) {
+      return tsconfigFile.compilerOptions;
+    }
+    return defaultValue;
+  };
   (async () => {
     let env;
     postMessage({
@@ -19,20 +31,23 @@
       details: []
     });
     const createTsSystem = async (files, entry) => {
-      const compilerOpts = {
-        target: ts.ScriptTarget.ES2021,
-        module: ts.ScriptTarget.ES2020,
-        lib: ["es2021", "es2020", "dom", "webworker"],
-        esModuleInterop: true
-      };
-      const fsMap = await createDefaultMapFromCDN(compilerOpts, ts.version, false, ts);
+      const tsFiles = /* @__PURE__ */ new Map();
       const rootPaths = [];
+      let tsconfig = null;
       for (const filePath in files) {
+        if (filePath === "tsconfig.json") {
+          tsconfig = files[filePath].code;
+        }
         if (/^[^.]+.tsx?$/.test(filePath)) {
-          fsMap.set(filePath, files[filePath].code);
+          tsFiles.set(filePath, files[filePath].code);
           rootPaths.push(filePath);
         }
       }
+      const compilerOpts = getCompileOptions(JSON.parse(tsconfig));
+      const fsMap = await createDefaultMapFromCDN(compilerOpts, ts.version, false, ts);
+      tsFiles.forEach((content, filePath) => {
+        fsMap.set(filePath, content);
+      });
       const reactTypes = await fetch("https://unpkg.com/@types/react@17.0.11/index.d.ts").then((data) => data.text());
       fsMap.set("/node_modules/@types/react/index.d.ts", reactTypes);
       const reactDomTypes = await fetch("https://unpkg.com/@types/react-dom@17.0.11/index.d.ts").then((data) => data.text());
@@ -70,15 +85,26 @@
       let result = [].concat(SyntacticDiagnostics, SemanticDiagnostic, SuggestionDiagnostics);
       postMessage({
         event: "lint-results",
-        details: result.map((v) => {
-          let from = v.start;
-          let to = v.start + v.length;
-          let diag = {
+        details: result.map((result2) => {
+          const from = result2.start;
+          const to = result2.start + result2.length;
+          const formatMessage = (message) => {
+            if (typeof message === "string")
+              return message;
+            return message.messageText;
+          };
+          const severity = [
+            "warning",
+            "error",
+            "info",
+            "info"
+          ];
+          const diag = {
             from,
             to,
-            message: v.messageText,
-            source: v?.source,
-            severity: ["warning", "error", "info", "info"][v.category]
+            message: formatMessage(result2.messageText),
+            source: result2?.source,
+            severity: severity[result2.category]
           };
           return diag;
         })

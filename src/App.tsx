@@ -10,7 +10,7 @@ import "@codesandbox/sandpack-react/dist/index.css";
 
 import { EventEmitter } from "@okikio/emitter";
 import codemirrorExtensions from "./codemirror-extensions";
-import { memo, useEffect } from "react";
+import { memo, useEffect, useState } from "react";
 
 const tsServer = new Worker(
   new URL("/workers/tsserver.js", window.location.origin),
@@ -51,16 +51,26 @@ const TypeScriptIntegration = () => {
 
 const CodeEditor: React.FC<{ activePath?: string }> = memo(({ activePath }) => {
   const extensions = createExtensions(activePath);
+
   return <SandpackCodeEditor showTabs extensions={extensions} />;
 });
 
 export default function App() {
+  const [loading, setLoading] = useState(true);
+
+  useEffect(function init() {
+    emitter.on("ready", () => {
+      setLoading(false);
+    });
+  }, []);
+
   return (
-    <SandpackProvider
-      template="react-ts"
-      customSetup={{
-        files: {
-          "/Button.tsx": `interface Props {
+    <>
+      <SandpackProvider
+        template="react-ts"
+        customSetup={{
+          files: {
+            "/Button.tsx": `interface Props {
   variant: "success" | "error";
 }
 const Button: React.FC<Props> = ({ children }) => {
@@ -69,7 +79,7 @@ const Button: React.FC<Props> = ({ children }) => {
 
 export { Button };`,
 
-          "/App.tsx": `import React, { useState } from "react"
+            "/App.tsx": `import React, { useState } from "react"
 import { Button } from "./Button"
 
 export default function App(): JSX.Element {
@@ -82,15 +92,18 @@ export default function App(): JSX.Element {
     </div>
   )
 }`,
-        },
-      }}
-    >
-      <SandpackThemeProvider>
-        <TypeScriptIntegration />
-        <SandpackConsumer>
-          {(state) => <CodeEditor activePath={state?.activePath} />}
-        </SandpackConsumer>
-      </SandpackThemeProvider>
-    </SandpackProvider>
+          },
+        }}
+      >
+        <SandpackThemeProvider>
+          <TypeScriptIntegration />
+          <SandpackConsumer>
+            {(state) => <CodeEditor activePath={state?.activePath} />}
+          </SandpackConsumer>
+        </SandpackThemeProvider>
+      </SandpackProvider>
+
+      {loading && <p>Loading...</p>}
+    </>
   );
 }

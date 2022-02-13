@@ -1,5 +1,6 @@
 import { SandpackFiles } from "@codesandbox/sandpack-react";
 import { VirtualTypeScriptEnvironment } from "@typescript/vfs";
+import { CompilerOptions } from "typescript";
 
 importScripts("https://unpkg.com/@typescript/vfs@1.3.5/dist/vfs.globals.js");
 importScripts(
@@ -23,6 +24,23 @@ var _emitter: EVENT_EMITTER = new EventEmitter();
 
 globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
 
+const getCompileOptions = (
+  tsconfigFile: Record<string, any>
+): CompilerOptions => {
+  const defaultValue = {
+    target: ts.ScriptTarget.ES2021,
+    module: ts.ScriptTarget.ES2020,
+    lib: ["es2021", "es2020", "dom", "webworker"],
+    esModuleInterop: true,
+  };
+
+  if (tsconfigFile.compilerOptions) {
+    return tsconfigFile.compilerOptions;
+  }
+
+  return defaultValue;
+};
+
 (async () => {
   let env: VirtualTypeScriptEnvironment;
 
@@ -38,12 +56,23 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
     files: Record<string, { code: string }>,
     entry: string
   ) => {
-    const compilerOpts = {
-      target: ts.ScriptTarget.ES2021,
-      module: ts.ScriptTarget.ES2020,
-      lib: ["es2021", "es2020", "dom", "webworker"],
-      esModuleInterop: true,
-    };
+    const tsFiles = new Map();
+    const rootPaths = [];
+    let tsconfig = null;
+
+    for (const filePath in files) {
+      if (filePath === "tsconfig.json") {
+        tsconfig = files[filePath].code;
+      }
+
+      if (/^[^.]+.tsx?$/.test(filePath)) {
+        // Only ts files
+        tsFiles.set(filePath, files[filePath].code);
+        rootPaths.push(filePath);
+      }
+    }
+
+    const compilerOpts = getCompileOptions(JSON.parse(tsconfig));
 
     const fsMap = await createDefaultMapFromCDN(
       compilerOpts,
@@ -52,15 +81,9 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
       ts
     );
 
-    const rootPaths = [];
-
-    for (const filePath in files) {
-      // Only ts files
-      if (/^[^.]+.tsx?$/.test(filePath)) {
-        fsMap.set(filePath, files[filePath].code);
-        rootPaths.push(filePath);
-      }
-    }
+    tsFiles.forEach((content, filePath) => {
+      fsMap.set(filePath, content);
+    });
 
     // TODO - dependencies
     const reactTypes = await fetch(
@@ -140,19 +163,40 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
 
     postMessage({
       event: "lint-results",
-      details: result.map((v) => {
-        let from = v.start;
-        let to = v.start + v.length;
-        // let codeActions = env.languageService.getCodeFixesAtPosition(ENTRY_POINT, from, to, [v.category], {}, {});
+      details: result.map((result) => {
+        const from = result.start;
+        const to = result.start + result.length;
+        // const codeActions = env.languageService.getCodeFixesAtPosition(
+        //   filePath,
+        //   from,
+        //   to,
+        //   [result.category],
+        //   {},
+        //   {}
+        // );
 
-        let diag: Diagnostic = {
+        const formatMessage = (
+          message: string | { messageText: string }
+        ): string => {
+          if (typeof message === "string") return message;
+
+          // TODO: get nested errors
+          return message.messageText;
+        };
+
+        const severity: Diagnostic["severity"][] = [
+          "warning",
+          "error",
+          "info",
+          "info",
+        ];
+
+        const diag: Diagnostic = {
           from,
           to,
-          message: v.messageText as string,
-          source: v?.source,
-          severity: ["warning", "error", "info", "info"][
-            v.category
-          ] as Diagnostic["severity"],
+          message: formatMessage(result.messageText),
+          source: result?.source,
+          severity: severity[result.category],
           // actions: codeActions as any as Diagnostic["actions"]
         };
 

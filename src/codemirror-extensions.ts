@@ -99,18 +99,15 @@ export default (tsServer: Worker, emitter: EventEmitter) =>
           return {
             pos,
             create() {
-              // TODO: why?
               const dom = document.createElement("div");
-              dom.setAttribute("class", "cm-quickinfo-tooltip");
+              dom.setAttribute("class", "quickinfo-tooltip");
               dom.textContent = tootltipText;
 
               return { dom };
             },
           };
         },
-        {
-          hideOnChange: true,
-        }
+        { hideOnChange: true }
       ),
 
       linter(
@@ -132,4 +129,11 @@ export default (tsServer: Worker, emitter: EventEmitter) =>
         },
         { delay: 400 }
       ),
+      EditorView.baseTheme({
+        ".quickinfo-tooltip": {
+          padding: "6px 3px 6px 8px",
+          marginLeft: "-1px",
+          borderLeft: "5px solid #999",
+        },
+      }),
     ];
