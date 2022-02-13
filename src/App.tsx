@@ -3,7 +3,6 @@ import {
   SandpackConsumer,
   SandpackProvider,
   SandpackThemeProvider,
-  useActiveCode,
   useSandpack,
 } from "@codesandbox/sandpack-react";
 import "@codesandbox/sandpack-react/dist/index.css";

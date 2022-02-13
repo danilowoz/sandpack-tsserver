@@ -18,15 +18,13 @@ export default (tsServer: Worker, emitter: EventEmitter) =>
     [
       EditorView.updateListener.of(
         debounce((update: ViewUpdate) => {
-          if (update.docChanged) {
-            tsServer.postMessage({
-              event: "updateText",
-              details: {
-                filePath,
-                content: update.state.doc.text.join("\n"),
-              },
-            });
-          }
+          tsServer.postMessage({
+            event: "updateText",
+            details: {
+              filePath,
+              content: update.state.doc.text.join("\n"),
+            },
+          });
         }, 150)
       ),
 

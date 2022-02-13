@@ -1,4 +1,3 @@
-import { SandpackFiles } from "@codesandbox/sandpack-react";
 import { VirtualTypeScriptEnvironment } from "@typescript/vfs";
 import { CompilerOptions } from "typescript";
 
@@ -58,22 +57,28 @@ const getCompileOptions = (
   ) => {
     const tsFiles = new Map();
     const rootPaths = [];
+    const dependencies = new Map();
     let tsconfig = null;
+    let packageJson = null;
 
     for (const filePath in files) {
-      if (filePath === "tsconfig.json") {
-        tsconfig = files[filePath].code;
-      }
+      const content = files[filePath].code;
 
-      if (/^[^.]+.tsx?$/.test(filePath)) {
+      if (filePath === "tsconfig.json" || filePath === "/tsconfig.json") {
+        tsconfig = content;
+      } else if (filePath === "package.json" || filePath === "/package.json") {
+        packageJson = content;
+      } else if (/^[^.]+.tsx?$/.test(filePath)) {
         // Only ts files
-        tsFiles.set(filePath, files[filePath].code);
+        tsFiles.set(filePath, content);
         rootPaths.push(filePath);
       }
     }
 
     const compilerOpts = getCompileOptions(JSON.parse(tsconfig));
 
+    // TODO: cache (localstorage) on main thread
+    // As worker doesn't have access to localstorate, it needs to post message to the main thread and retrieve it back
     const fsMap = await createDefaultMapFromCDN(
       compilerOpts,
       ts.version,
@@ -85,6 +90,7 @@ const getCompileOptions = (
       fsMap.set(filePath, content);
     });
 
+    console.log(packageJson);
     // TODO - dependencies
     const reactTypes = await fetch(
       "https://unpkg.com/@types/react@17.0.11/index.d.ts"

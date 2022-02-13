@@ -33,13 +33,17 @@
     const createTsSystem = async (files, entry) => {
       const tsFiles = /* @__PURE__ */ new Map();
       const rootPaths = [];
+      const dependencies = /* @__PURE__ */ new Map();
       let tsconfig = null;
+      let packageJson = null;
       for (const filePath in files) {
-        if (filePath === "tsconfig.json") {
-          tsconfig = files[filePath].code;
-        }
-        if (/^[^.]+.tsx?$/.test(filePath)) {
-          tsFiles.set(filePath, files[filePath].code);
+        const content = files[filePath].code;
+        if (filePath === "tsconfig.json" || filePath === "/tsconfig.json") {
+          tsconfig = content;
+        } else if (filePath === "package.json" || filePath === "/package.json") {
+          packageJson = content;
+        } else if (/^[^.]+.tsx?$/.test(filePath)) {
+          tsFiles.set(filePath, content);
           rootPaths.push(filePath);
         }
       }
@@ -48,6 +52,7 @@
       tsFiles.forEach((content, filePath) => {
         fsMap.set(filePath, content);
       });
+      console.log(packageJson);
       const reactTypes = await fetch("https://unpkg.com/@types/react@17.0.11/index.d.ts").then((data) => data.text());
       fsMap.set("/node_modules/@types/react/index.d.ts", reactTypes);
       const reactDomTypes = await fetch("https://unpkg.com/@types/react-dom@17.0.11/index.d.ts").then((data) => data.text());
