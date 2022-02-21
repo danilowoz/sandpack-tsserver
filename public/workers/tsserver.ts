@@ -71,7 +71,8 @@ const getCompileOptions = (
 
   const createTsSystem = async (
     files: Record<string, { code: string }>,
-    entry: string
+    entry: string,
+    fsMapCached: Map<string, string>
   ) => {
     const tsFiles = new Map();
     const rootPaths = [];
@@ -98,14 +99,36 @@ const getCompileOptions = (
 
     const compilerOpts = getCompileOptions(JSON.parse(tsconfig));
 
-    // TODO: cache (localstorage) on main thread
-    // As worker doesn't have access to localstorate, it needs to post message to the main thread and retrieve it back
-    const fsMap = await createDefaultMapFromCDN(
-      compilerOpts,
-      ts.version,
-      false,
-      ts
-    );
+    const digestCache = (): Map<string, string> => {
+      const cache = new Map();
+      const matchVersion = Array.from(fsMapCached.keys()).every((file) =>
+        file.startsWith(`ts-lib-${ts.version}`)
+      );
+
+      if (!matchVersion) cache;
+
+      fsMapCached.forEach((value, key) => {
+        const cleanLibName = key.replace(`ts-lib-${ts.version}-`, "");
+        cache.set(cleanLibName, value);
+      });
+
+      return cache;
+    };
+
+    let fsMap = digestCache();
+    if (fsMap.size === 0) {
+      fsMap = await createDefaultMapFromCDN(
+        compilerOpts,
+        ts.version,
+        false,
+        ts
+      );
+    }
+
+    postMessage({
+      event: "cache-typescript-fsmap",
+      details: { fsMap, version: ts.version },
+    });
 
     tsFiles.forEach((content, filePath) => {
       fsMap.set(filePath, content);
@@ -136,7 +159,10 @@ const getCompileOptions = (
 
       if (hasTypes) {
         Object.entries(files).forEach(([key, value]) => {
-          if (key.endsWith(".d.ts") && value?.module?.code) {
+          if (
+            (key.endsWith(".d.ts") || key.endsWith("/package.json")) &&
+            value?.module?.code
+          ) {
             fsMap.set(`/node_modules${key}`, value.module.code);
           }
         });
@@ -282,8 +308,9 @@ const getCompileOptions = (
     async (payload: {
       files: Record<string, { code: string }>;
       entry: string;
+      fsMapCached: Map<string, string>;
     }) => {
-      createTsSystem(payload.files, payload.entry);
+      createTsSystem(payload.files, payload.entry, payload.fsMapCached);
     }
   );
   _emitter.on("lint-request", (payload: { filePath: string }) =>

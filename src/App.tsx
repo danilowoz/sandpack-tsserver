@@ -38,11 +38,38 @@ const TypeScriptIntegration = () => {
 
   useEffect(function init() {
     emitter.on("ready", () => {
+      const getTypescriptCache = () => {
+        const cache = new Map();
+        const keys = Object.keys(localStorage);
+
+        keys.forEach((key) => {
+          if (key.startsWith("ts-lib-")) {
+            cache.set(key, localStorage.getItem(key));
+          }
+        });
+
+        return cache;
+      };
+
       tsServer.postMessage({
         event: "create-system",
-        details: { files: sandpack.files, entry: sandpack.activePath },
+        details: {
+          files: sandpack.files,
+          entry: sandpack.activePath,
+          fsMapCached: getTypescriptCache(),
+        },
       });
     });
+
+    emitter.on(
+      "cache-typescript-fsmap",
+      ({ version, fsMap }: { version: string; fsMap: Map<string, string> }) => {
+        fsMap.forEach((file, lib) => {
+          const cacheKey = "ts-lib-" + version + "-" + lib;
+          localStorage.setItem(cacheKey, file);
+        });
+      }
+    );
   }, []);
 
   return null;
@@ -93,6 +120,7 @@ export default function App(): JSX.Element {
   return (
     <div>
       <h1>Hello World</h1>
+      <Sandpack />
       <Button />
     </div>
   )

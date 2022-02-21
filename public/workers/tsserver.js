@@ -43,7 +43,7 @@
       event: "ready",
       details: []
     });
-    const createTsSystem = async (files, entry) => {
+    const createTsSystem = async (files, entry, fsMapCached) => {
       const tsFiles = /* @__PURE__ */ new Map();
       const rootPaths = [];
       const dependenciesMap = /* @__PURE__ */ new Map();
@@ -61,7 +61,25 @@
         }
       }
       const compilerOpts = getCompileOptions(JSON.parse(tsconfig));
-      const fsMap = await createDefaultMapFromCDN(compilerOpts, ts.version, false, ts);
+      const digestCache = () => {
+        const cache = /* @__PURE__ */ new Map();
+        const matchVersion = Array.from(fsMapCached.keys()).every((file) => file.startsWith(`ts-lib-${ts.version}`));
+        if (!matchVersion)
+          cache;
+        fsMapCached.forEach((value, key) => {
+          const cleanLibName = key.replace(`ts-lib-${ts.version}-`, "");
+          cache.set(cleanLibName, value);
+        });
+        return cache;
+      };
+      let fsMap = digestCache();
+      if (fsMap.size === 0) {
+        fsMap = await createDefaultMapFromCDN(compilerOpts, ts.version, false, ts);
+      }
+      postMessage({
+        event: "cache-typescript-fsmap",
+        details: { fsMap, version: ts.version }
+      });
       tsFiles.forEach((content, filePath) => {
         fsMap.set(filePath, content);
       });
@@ -80,7 +98,7 @@
         const hasTypes = Object.keys(files2).some((key) => key.startsWith("/" + name) && key.endsWith(".d.ts"));
         if (hasTypes) {
           Object.entries(files2).forEach(([key, value]) => {
-            if (key.endsWith(".d.ts") && value?.module?.code) {
+            if ((key.endsWith(".d.ts") || key.endsWith("/package.json")) && value?.module?.code) {
               fsMap.set(`/node_modules${key}`, value.module.code);
             }
           });
@@ -161,7 +179,7 @@
       });
     };
     _emitter.once("create-system", async (payload) => {
-      createTsSystem(payload.files, payload.entry);
+      createTsSystem(payload.files, payload.entry, payload.fsMapCached);
     });
     _emitter.on("lint-request", (payload) => lintSystem(payload.filePath));
     _emitter.on("updateText", (payload) => updateFile(payload.filePath, payload.content));
