@@ -68,6 +68,10 @@ export default function App() {
       <SandpackProvider
         template="react-ts"
         customSetup={{
+          dependencies: {
+            "styled-components": "latest",
+            "@codesandbox/sandpack-react": "latest",
+          },
           files: {
             "/Button.tsx": `interface Props {
   variant: "success" | "error";
@@ -80,6 +84,8 @@ export { Button };`,
 
             "/App.tsx": `import React, { useState } from "react"
 import { Button } from "./Button"
+import styled from "styled-components"
+import { Sandpack } from "@codesandbox/sandpack-react"
 
 export default function App(): JSX.Element {
   const [state, setState] = useState()

@@ -23,6 +23,24 @@ var _emitter: EVENT_EMITTER = new EventEmitter();
 
 globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
 
+const BUCKET_URL = "https://prod-packager-packages.codesandbox.io/v1/typings";
+const TYPES_REGISTRY = "https://unpkg.com/types-registry@latest/index.json";
+
+const fetchDependencyTyping = async ({
+  name,
+  version,
+}: {
+  name: string;
+  version: string;
+}): Promise<Record<string, { module: { code: string } }>> => {
+  try {
+    const url = `${BUCKET_URL}/${name}/${version}.json`;
+    const { files } = await fetch(url).then((data) => data.json());
+
+    return files;
+  } catch {}
+};
+
 const getCompileOptions = (
   tsconfigFile: Record<string, any>
 ): CompilerOptions => {
@@ -57,10 +75,13 @@ const getCompileOptions = (
   ) => {
     const tsFiles = new Map();
     const rootPaths = [];
-    const dependencies = new Map();
+    const dependenciesMap = new Map();
     let tsconfig = null;
     let packageJson = null;
 
+    /**
+     * Collect files
+     */
     for (const filePath in files) {
       const content = files[filePath].code;
 
@@ -90,16 +111,58 @@ const getCompileOptions = (
       fsMap.set(filePath, content);
     });
 
-    console.log(packageJson);
-    // TODO - dependencies
-    const reactTypes = await fetch(
-      "https://unpkg.com/@types/react@17.0.11/index.d.ts"
-    ).then((data) => data.text());
-    fsMap.set("/node_modules/@types/react/index.d.ts", reactTypes);
-    const reactDomTypes = await fetch(
-      "https://unpkg.com/@types/react-dom@17.0.11/index.d.ts"
-    ).then((data) => data.text());
-    fsMap.set("/node_modules/@types/react-dom/index.d.ts", reactDomTypes);
+    /**
+     * Dependencies types
+     */
+    const { dependencies, devDependencies } = JSON.parse(packageJson);
+    for (const dep in devDependencies ?? {}) {
+      dependenciesMap.set(dep, devDependencies[dep]);
+    }
+    for (const dep in dependencies ?? {}) {
+      // Avoid redundant requests
+      if (!dependenciesMap.has(`@types/${dep}`)) {
+        dependenciesMap.set(dep, dependencies[dep]);
+      }
+    }
+
+    let typesInfo: Record<string, { latest: string }>;
+
+    dependenciesMap.forEach(async (version, name) => {
+      // CodeSandbox CDN
+      const files = await fetchDependencyTyping({ name, version });
+      const hasTypes = Object.keys(files).some(
+        (key) => key.startsWith("/" + name) && key.endsWith(".d.ts")
+      );
+
+      if (hasTypes) {
+        Object.entries(files).forEach(([key, value]) => {
+          if (key.endsWith(".d.ts") && value?.module?.code) {
+            fsMap.set(`/node_modules${key}`, value.module.code);
+          }
+        });
+      } else {
+        // Look for types in @types register
+        if (!typesInfo) {
+          typesInfo = await fetch(TYPES_REGISTRY)
+            .then((data) => data.json())
+            .then((data) => data.entries);
+        }
+
+        const typingName = `@types/${name}`;
+        if (typesInfo[name]) {
+          const atTypeFiles = await fetchDependencyTyping({
+            name: typingName,
+            version: typesInfo[name].latest,
+          });
+
+          Object.entries(atTypeFiles).forEach(([key, value]) => {
+            if (key.endsWith(".d.ts") && value?.module?.code) {
+              fsMap.set(`/node_modules${key}`, value.module.code);
+            }
+          });
+        }
+      }
+    });
 
     const system = createSystem(fsMap);
 
