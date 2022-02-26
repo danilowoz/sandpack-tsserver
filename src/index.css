@@ -1,0 +1,16 @@
+body {
+  font-family: sans-serif;
+  color: #151515;
+  line-height: 1.4;
+}
+
+.content {
+  width: 960px;
+  margin: 0 auto;
+}
+
+.sp-wrapper {
+  --sp-layout-height: 370px;
+
+  margin: 0 -25px 25px;
+}
