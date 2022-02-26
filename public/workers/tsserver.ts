@@ -284,7 +284,7 @@ const isValidTypeModule = (key: string, value?: { module: { code: string } }) =>
 
     postMessage({
       event: "lint-results",
-      details: result.map((result) => {
+      details: result.reduce((acc, result) => {
         const from = result.start;
         const to = result.start + result.length;
         // const codeActions = env.languageService.getCodeFixesAtPosition(
@@ -296,13 +296,29 @@ const isValidTypeModule = (key: string, value?: { module: { code: string } }) =>
         //   {}
         // );
 
-        const formatMessage = (
-          message: string | { messageText: string }
-        ): string => {
-          if (typeof message === "string") return message;
+        type ErrorMessageObj = {
+          messageText: string;
+          next?: ErrorMessageObj[];
+        };
+        type ErrorMessage = ErrorMessageObj | string;
 
-          // TODO: get nested errors
-          return message.messageText;
+        const messagesErrors = (message: ErrorMessage): string[] => {
+          if (typeof message === "string") return [message];
+
+          const messageList = [];
+          const getMessage = (loop: ErrorMessageObj) => {
+            messageList.push(loop.messageText);
+
+            if (loop.next) {
+              loop.next.forEach((item) => {
+                getMessage(item);
+              });
+            }
+          };
+
+          getMessage(message);
+
+          return messageList;
         };
 
         const severity: Diagnostic["severity"][] = [
@@ -312,17 +328,19 @@ const isValidTypeModule = (key: string, value?: { module: { code: string } }) =>
           "info",
         ];
 
-        const diag: Diagnostic = {
-          from,
-          to,
-          message: formatMessage(result.messageText),
-          source: result?.source,
-          severity: severity[result.category],
-          // actions: codeActions as any as Diagnostic["actions"]
-        };
+        messagesErrors(result.messageText).forEach((message) => {
+          acc.push({
+            from,
+            to,
+            message,
+            source: result?.source,
+            severity: severity[result.category],
+            // actions: codeActions as any as Diagnostic["actions"]
+          });
+        });
 
-        return diag;
-      }),
+        return acc;
+      }, [] as Diagnostic[]),
     });
   };
 

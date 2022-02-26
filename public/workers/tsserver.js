@@ -37,7 +37,19 @@
     }
     return defaultValue;
   };
-  (async () => {
+  var processTypescriptCacheFromStorage = (fsMapCached) => {
+    const cache = /* @__PURE__ */ new Map();
+    const matchVersion = Array.from(fsMapCached.keys()).every((file) => file.startsWith(`ts-lib-${ts.version}`));
+    if (!matchVersion)
+      cache;
+    fsMapCached.forEach((value, key) => {
+      const cleanLibName = key.replace(`ts-lib-${ts.version}-`, "");
+      cache.set(cleanLibName, value);
+    });
+    return cache;
+  };
+  var isValidTypeModule = (key, value) => key.endsWith(".d.ts") || key.endsWith("/package.json") && value?.module?.code;
+  (async function lspTypescriptWorker() {
     let env;
     postMessage({
       event: "ready",
@@ -49,6 +61,7 @@
       const dependenciesMap = /* @__PURE__ */ new Map();
       let tsconfig = null;
       let packageJson = null;
+      let typeVersionsFromRegistry;
       for (const filePath in files) {
         const content = files[filePath].code;
         if (filePath === "tsconfig.json" || filePath === "/tsconfig.json") {
@@ -61,18 +74,7 @@
         }
       }
       const compilerOpts = getCompileOptions(JSON.parse(tsconfig));
-      const digestCache = () => {
-        const cache = /* @__PURE__ */ new Map();
-        const matchVersion = Array.from(fsMapCached.keys()).every((file) => file.startsWith(`ts-lib-${ts.version}`));
-        if (!matchVersion)
-          cache;
-        fsMapCached.forEach((value, key) => {
-          const cleanLibName = key.replace(`ts-lib-${ts.version}-`, "");
-          cache.set(cleanLibName, value);
-        });
-        return cache;
-      };
-      let fsMap = digestCache();
+      let fsMap = processTypescriptCacheFromStorage(fsMapCached);
       if (fsMap.size === 0) {
         fsMap = await createDefaultMapFromCDN(compilerOpts, ts.version, false, ts);
       }
@@ -92,32 +94,31 @@
           dependenciesMap.set(dep, dependencies[dep]);
         }
       }
-      let typesInfo;
       dependenciesMap.forEach(async (version, name) => {
         const files2 = await fetchDependencyTyping({ name, version });
         const hasTypes = Object.keys(files2).some((key) => key.startsWith("/" + name) && key.endsWith(".d.ts"));
         if (hasTypes) {
           Object.entries(files2).forEach(([key, value]) => {
-            if ((key.endsWith(".d.ts") || key.endsWith("/package.json")) && value?.module?.code) {
+            if (isValidTypeModule(key, value)) {
               fsMap.set(`/node_modules${key}`, value.module.code);
             }
           });
-        } else {
-          if (!typesInfo) {
-            typesInfo = await fetch(TYPES_REGISTRY).then((data) => data.json()).then((data) => data.entries);
-          }
-          const typingName = `@types/${name}`;
-          if (typesInfo[name]) {
-            const atTypeFiles = await fetchDependencyTyping({
-              name: typingName,
-              version: typesInfo[name].latest
-            });
-            Object.entries(atTypeFiles).forEach(([key, value]) => {
-              if (key.endsWith(".d.ts") && value?.module?.code) {
-                fsMap.set(`/node_modules${key}`, value.module.code);
-              }
-            });
-          }
+          return;
+        }
+        if (!typeVersionsFromRegistry) {
+          typeVersionsFromRegistry = await fetch(TYPES_REGISTRY).then((data) => data.json()).then((data) => data.entries);
+        }
+        const typingName = `@types/${name}`;
+        if (typeVersionsFromRegistry[name]) {
+          const atTypeFiles = await fetchDependencyTyping({
+            name: typingName,
+            version: typeVersionsFromRegistry[name].latest
+          });
+          Object.entries(atTypeFiles).forEach(([key, value]) => {
+            if (isValidTypeModule(key, value)) {
+              fsMap.set(`/node_modules${key}`, value.module.code);
+            }
+          });
         }
       });
       const system = createSystem(fsMap);
@@ -153,13 +154,23 @@
       let result = [].concat(SyntacticDiagnostics, SemanticDiagnostic, SuggestionDiagnostics);
       postMessage({
         event: "lint-results",
-        details: result.map((result2) => {
+        details: result.reduce((acc, result2) => {
           const from = result2.start;
           const to = result2.start + result2.length;
-          const formatMessage = (message) => {
+          const messagesErrors = (message) => {
             if (typeof message === "string")
-              return message;
-            return message.messageText;
+              return [message];
+            const messageList = [];
+            const getMessage = (loop) => {
+              messageList.push(loop.messageText);
+              if (loop.next) {
+                loop.next.forEach((item) => {
+                  getMessage(item);
+                });
+              }
+            };
+            getMessage(message);
+            return messageList;
           };
           const severity = [
             "warning",
@@ -167,15 +178,17 @@
             "info",
             "info"
           ];
-          const diag = {
-            from,
-            to,
-            message: formatMessage(result2.messageText),
-            source: result2?.source,
-            severity: severity[result2.category]
-          };
-          return diag;
-        })
+          messagesErrors(result2.messageText).forEach((message) => {
+            acc.push({
+              from,
+              to,
+              message,
+              source: result2?.source,
+              severity: severity[result2.category]
+            });
+          });
+          return acc;
+        }, [])
       });
     };
     _emitter.once("create-system", async (payload) => {

@@ -1,7 +1,7 @@
 import { SandpackCodeEditor, useSandpack } from "@codesandbox/sandpack-react";
 
 import { EventEmitter } from "@okikio/emitter";
-import codemirrorTypescriptExtensions from "./codemirror-extensions";
+import { codemirrorTypescriptExtensions } from "./codemirror-extensions";
 import { memo, useEffect, useRef } from "react";
 
 export const CodeEditor: React.FC<{ activePath?: string }> = memo(
