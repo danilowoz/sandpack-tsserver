@@ -5,15 +5,17 @@ import {
   SandpackProvider,
   SandpackSetup,
   SandpackThemeProvider,
+  SandpackPredefinedTemplate,
 } from "@codesandbox/sandpack-react";
 import "@codesandbox/sandpack-react/dist/index.css";
 import { CodeEditor } from "./CodeEditor";
 
-export const SandpackTypescript: React.FC<{ customSetup: SandpackSetup }> = ({
-  customSetup,
-}) => {
+export const SandpackTypescript: React.FC<{
+  customSetup: SandpackSetup;
+  template: SandpackPredefinedTemplate;
+}> = ({ customSetup, template }) => {
   return (
-    <SandpackProvider template="react-ts" customSetup={customSetup}>
+    <SandpackProvider template={template} customSetup={customSetup}>
       <SandpackThemeProvider>
         <SandpackLayout>
           <SandpackConsumer>

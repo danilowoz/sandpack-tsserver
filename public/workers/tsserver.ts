@@ -1,5 +1,5 @@
 import { VirtualTypeScriptEnvironment } from "@typescript/vfs";
-import { CompilerOptions } from "typescript";
+import { CompilerOptions, ModuleResolutionKind } from "typescript";
 
 importScripts("https://unpkg.com/@typescript/vfs@1.3.5/dist/vfs.globals.js");
 importScripts(
@@ -58,7 +58,13 @@ const getCompileOptions = (
   };
 
   if (tsconfigFile.compilerOptions) {
-    return tsconfigFile.compilerOptions;
+    const { compilerOptions } = tsconfigFile;
+    // Hard fixes
+    if (compilerOptions.moduleResolution === "node") {
+      compilerOptions.moduleResolution = ModuleResolutionKind.NodeJs;
+    }
+
+    return compilerOptions;
   }
 
   return defaultValue;

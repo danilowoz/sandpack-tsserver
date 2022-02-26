@@ -76,6 +76,6 @@ export const CodeEditor: React.FC<{ activePath?: string }> = memo(
       activePath
     );
 
-    return <SandpackCodeEditor extensions={extensions} />;
+    return <SandpackCodeEditor showTabs extensions={extensions} />;
   }
 );
