@@ -1,99 +1,5 @@
-import {
-  SandpackCodeEditor,
-  SandpackConsumer,
-  SandpackLayout,
-  SandpackPreview,
-  SandpackProvider,
-  SandpackThemeProvider,
-  useSandpack,
-} from "@codesandbox/sandpack-react";
-import "@codesandbox/sandpack-react/dist/index.css";
-
-import { EventEmitter } from "@okikio/emitter";
-import codemirrorExtensions from "./codemirror-extensions";
-import { memo, useEffect, useRef } from "react";
-
-const CodeEditor: React.FC<{ activePath?: string }> = memo(({ activePath }) => {
-  const tsServer = useRef(
-    new Worker(new URL("/workers/tsserver.js", window.location.origin), {
-      name: "ts-server",
-    })
-  );
-  const emitter = useRef(new EventEmitter());
-  const { sandpack } = useSandpack();
-
-  useEffect(function listener() {
-    const serverMessageCallback = ({
-      data: { event, details },
-    }: MessageEvent<{ event: string; details: any }>) => {
-      emitter.current.emit(event, details);
-    };
-
-    tsServer.current.addEventListener("message", serverMessageCallback);
-
-    return () => {
-      tsServer.current.removeEventListener("message", serverMessageCallback);
-    };
-  }, []);
-
-  useEffect(function init() {
-    emitter.current.on("ready", () => {
-      const getTypescriptCache = () => {
-        const cache = new Map();
-        const keys = Object.keys(localStorage);
-
-        keys.forEach((key) => {
-          if (key.startsWith("ts-lib-")) {
-            cache.set(key, localStorage.getItem(key));
-          }
-        });
-
-        return cache;
-      };
-
-      tsServer.current.postMessage({
-        event: "create-system",
-        details: {
-          files: sandpack.files,
-          entry: sandpack.activePath,
-          fsMapCached: getTypescriptCache(),
-        },
-      });
-    });
-
-    emitter.current.on(
-      "cache-typescript-fsmap",
-      ({ version, fsMap }: { version: string; fsMap: Map<string, string> }) => {
-        fsMap.forEach((file, lib) => {
-          const cacheKey = "ts-lib-" + version + "-" + lib;
-          localStorage.setItem(cacheKey, file);
-        });
-      }
-    );
-  }, []);
-
-  const extensions = codemirrorExtensions(
-    tsServer.current,
-    emitter.current
-  )(activePath);
-
-  return <SandpackCodeEditor showTabs extensions={extensions} />;
-});
-
-const SandpackTypescript = ({ customSetup }) => {
-  return (
-    <SandpackProvider template="react-ts" customSetup={customSetup}>
-      <SandpackThemeProvider>
-        <SandpackLayout>
-          <SandpackConsumer>
-            {(state) => <CodeEditor activePath={state?.activePath} />}
-          </SandpackConsumer>
-          <SandpackPreview />
-        </SandpackLayout>
-      </SandpackThemeProvider>
-    </SandpackProvider>
-  );
-};
+import { SandpackTypescript } from "./sandpack-components/SandpackTypescript";
+import "./index.css";
 
 export default function App() {
   return (
@@ -143,7 +49,8 @@ export default function App(): JSX.Element {
             "framer-motion": "latest",
           },
           files: {
-            "/App.tsx": `import React from "react"
+            "/App.tsx": {
+              code: `import React from "react"
 import { Flex } from '@chakra-ui/react'
 
 export default function App(): JSX.Element {
@@ -158,6 +65,7 @@ export default function App(): JSX.Element {
     </Flex>
   )
 }`,
+            },
           },
         }}
       />

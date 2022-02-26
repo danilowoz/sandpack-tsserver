@@ -26,6 +26,9 @@ globalThis.localStorage = globalThis.localStorage ?? ({} as Storage);
 const BUCKET_URL = "https://prod-packager-packages.codesandbox.io/v1/typings";
 const TYPES_REGISTRY = "https://unpkg.com/types-registry@latest/index.json";
 
+/**
+ * Fetch dependencies types from CodeSandbox CDN
+ */
 const fetchDependencyTyping = async ({
   name,
   version,
@@ -41,6 +44,9 @@ const fetchDependencyTyping = async ({
   } catch {}
 };
 
+/**
+ * Process the TS compile options or default to
+ */
 const getCompileOptions = (
   tsconfigFile: Record<string, any>
 ): CompilerOptions => {
@@ -58,12 +64,34 @@ const getCompileOptions = (
   return defaultValue;
 };
 
-(async () => {
+const processTypescriptCacheFromStorage = (
+  fsMapCached: Map<string, string>
+): Map<string, string> => {
+  const cache = new Map();
+  const matchVersion = Array.from(fsMapCached.keys()).every((file) =>
+    file.startsWith(`ts-lib-${ts.version}`)
+  );
+
+  if (!matchVersion) cache;
+
+  fsMapCached.forEach((value, key) => {
+    const cleanLibName = key.replace(`ts-lib-${ts.version}-`, "");
+    cache.set(cleanLibName, value);
+  });
+
+  return cache;
+};
+
+const isValidTypeModule = (key: string, value?: { module: { code: string } }) =>
+  key.endsWith(".d.ts") ||
+  (key.endsWith("/package.json") && value?.module?.code);
+
+/**
+ * Main worker function
+ */
+(async function lspTypescriptWorker() {
   let env: VirtualTypeScriptEnvironment;
 
-  /**
-   * Worker is ready
-   */
   postMessage({
     event: "ready",
     details: [],
@@ -79,6 +107,7 @@ const getCompileOptions = (
     const dependenciesMap = new Map();
     let tsconfig = null;
     let packageJson = null;
+    let typeVersionsFromRegistry: Record<string, { latest: string }>;
 
     /**
      * Collect files
@@ -86,6 +115,7 @@ const getCompileOptions = (
     for (const filePath in files) {
       const content = files[filePath].code;
 
+      // TODO: normalize path
       if (filePath === "tsconfig.json" || filePath === "/tsconfig.json") {
         tsconfig = content;
       } else if (filePath === "package.json" || filePath === "/package.json") {
@@ -99,23 +129,10 @@ const getCompileOptions = (
 
     const compilerOpts = getCompileOptions(JSON.parse(tsconfig));
 
-    const digestCache = (): Map<string, string> => {
-      const cache = new Map();
-      const matchVersion = Array.from(fsMapCached.keys()).every((file) =>
-        file.startsWith(`ts-lib-${ts.version}`)
-      );
-
-      if (!matchVersion) cache;
-
-      fsMapCached.forEach((value, key) => {
-        const cleanLibName = key.replace(`ts-lib-${ts.version}-`, "");
-        cache.set(cleanLibName, value);
-      });
-
-      return cache;
-    };
-
-    let fsMap = digestCache();
+    /**
+     * Process cache or get a fresh one
+     */
+    let fsMap = processTypescriptCacheFromStorage(fsMapCached);
     if (fsMap.size === 0) {
       fsMap = await createDefaultMapFromCDN(
         compilerOpts,
@@ -125,22 +142,29 @@ const getCompileOptions = (
       );
     }
 
+    /**
+     * Post CDN payload to cache in the browser storage
+     */
     postMessage({
       event: "cache-typescript-fsmap",
       details: { fsMap, version: ts.version },
     });
 
+    /**
+     * Add local files to the file-system
+     */
     tsFiles.forEach((content, filePath) => {
       fsMap.set(filePath, content);
     });
 
     /**
-     * Dependencies types
+     * Get dependencies from package.json
      */
     const { dependencies, devDependencies } = JSON.parse(packageJson);
     for (const dep in devDependencies ?? {}) {
       dependenciesMap.set(dep, devDependencies[dep]);
     }
+
     for (const dep in dependencies ?? {}) {
       // Avoid redundant requests
       if (!dependenciesMap.has(`@types/${dep}`)) {
@@ -148,45 +172,47 @@ const getCompileOptions = (
       }
     }
 
-    let typesInfo: Record<string, { latest: string }>;
-
+    /**
+     * Fetch dependencies types
+     */
     dependenciesMap.forEach(async (version, name) => {
-      // CodeSandbox CDN
+      // 1. CodeSandbox CDN
       const files = await fetchDependencyTyping({ name, version });
       const hasTypes = Object.keys(files).some(
         (key) => key.startsWith("/" + name) && key.endsWith(".d.ts")
       );
 
+      // 2. Types found
       if (hasTypes) {
         Object.entries(files).forEach(([key, value]) => {
-          if (
-            (key.endsWith(".d.ts") || key.endsWith("/package.json")) &&
-            value?.module?.code
-          ) {
+          if (isValidTypeModule(key, value)) {
             fsMap.set(`/node_modules${key}`, value.module.code);
           }
         });
-      } else {
-        // Look for types in @types register
-        if (!typesInfo) {
-          typesInfo = await fetch(TYPES_REGISTRY)
-            .then((data) => data.json())
-            .then((data) => data.entries);
-        }
 
-        const typingName = `@types/${name}`;
-        if (typesInfo[name]) {
-          const atTypeFiles = await fetchDependencyTyping({
-            name: typingName,
-            version: typesInfo[name].latest,
-          });
+        return;
+      }
 
-          Object.entries(atTypeFiles).forEach(([key, value]) => {
-            if (key.endsWith(".d.ts") && value?.module?.code) {
-              fsMap.set(`/node_modules${key}`, value.module.code);
-            }
-          });
-        }
+      // 3. Types found: fetch types version from registry
+      if (!typeVersionsFromRegistry) {
+        typeVersionsFromRegistry = await fetch(TYPES_REGISTRY)
+          .then((data) => data.json())
+          .then((data) => data.entries);
+      }
+
+      // 4. Types found: no Look for types in @types register
+      const typingName = `@types/${name}`;
+      if (typeVersionsFromRegistry[name]) {
+        const atTypeFiles = await fetchDependencyTyping({
+          name: typingName,
+          version: typeVersionsFromRegistry[name].latest,
+        });
+
+        Object.entries(atTypeFiles).forEach(([key, value]) => {
+          if (isValidTypeModule(key, value)) {
+            fsMap.set(`/node_modules${key}`, value.module.code);
+          }
+        });
       }
     });
 
