@@ -1,5 +1,10 @@
 import { VirtualTypeScriptEnvironment } from "@typescript/vfs";
-import { CompilerOptions, ModuleResolutionKind } from "typescript";
+import { CompilerOptions } from "typescript";
+
+enum ModuleResolutionKind {
+  Classic = 1,
+  NodeJs = 2,
+}
 
 importScripts("https://unpkg.com/@typescript/vfs@1.3.5/dist/vfs.globals.js");
 importScripts(
