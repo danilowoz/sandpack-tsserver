@@ -22,7 +22,9 @@ export default function App() {
 
       <br />
 
-      <h2>Vanilla TypeScript</h2>
+      <SandpackTypescript template="react-ts" customSetup={{}} />
+
+      {/* <h2>Vanilla TypeScript</h2>
       <SandpackTypescript
         template="vanilla-ts"
         customSetup={{
@@ -40,7 +42,7 @@ selector.innerHTML = \`
 \`;`,
           },
         }}
-      />
+      /> */}
 
       <h2>Basic React</h2>
       <SandpackTypescript
